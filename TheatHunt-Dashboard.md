@@ -1,6 +1,6 @@
 # 🔎 Threat Hunt – Pilot
 
-CrowdStrike Falcon Next-Gen SIEM dashboard for proactive, technique-level hunting. Pilot version, built to prove out the hunts before they're turned into scheduled detections.
+CrowdStrike Falcon dashboard for proactive, technique-level hunting. Pilot version, built to prove out the hunts before they're turned into scheduled detections.
 
 ---
 
