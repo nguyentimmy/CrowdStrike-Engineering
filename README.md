@@ -13,7 +13,7 @@ More engineering content coming soon.
 | 🛡️ [Endpoint Defense Posture](EndpointDefensePosture-Dashboard.md) | All-in-one view of endpoint protection: sensor health, detection trends, custom IOA/IOC health, and prevention coverage | v1 |
 | 🩺 [Sensor Health](SensorHealth-Dashboard.md) | Sensor coverage and health: who's reporting, who's gone silent, and what's out of date | v1 |
 | 🔎 [Daily Threat Hunts](ThreatHuntV2-Dashboard.md) | 17 daily hunts across execution, identity, persistence, and lateral movement | v2 |
-| 🗄️ [Threat Hunt – Pilot](ThreatHunt-Dashboard.md) | Original 7-hunt pilot, kept for history | v1 |
+| 🗄️ [Daily Threat Hunts v1 (OG)](ThreatHunt-Dashboard.md) | Original 7-hunt pilot, kept for history | v1 |
 
 ---
 
