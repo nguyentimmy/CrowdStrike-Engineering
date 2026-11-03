@@ -8,7 +8,7 @@ More engineering content coming soon.
 
 ## 📊 Dashboards
 
-| Dashboard | What it does 
+| Dashboard | What it does |
 | --- | --- | --- |
 | 🛡️ [Endpoint Defense Posture](EndpointDefensePosture-Dashboard.md) | All-in-one view of endpoint protection: sensor health, detection trends, custom IOA/IOC health, and prevention coverage 
 | 🩺 [Sensor Health](SensorHealth-Dashboard.md) | Sensor coverage and health: who's reporting, who's gone silent, and what's out of date 
