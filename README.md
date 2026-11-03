@@ -9,11 +9,12 @@ More engineering content coming soon.
 ## 📊 Dashboards
 
 | Dashboard | What it does |
-| --- | --- | --- |
-| 🛡️ [Endpoint Defense Posture](EndpointDefensePosture-Dashboard.md) | All-in-one view of endpoint protection: sensor health, detection trends, custom IOA/IOC health, and prevention coverage 
-| 🩺 [Sensor Health](SensorHealth-Dashboard.md) | Sensor coverage and health: who's reporting, who's gone silent, and what's out of date 
-| 🔎 [Daily Threat Hunts](ThreatHuntV2-Dashboard.md) | 17 daily hunts across execution, identity, persistence, and lateral movement 
-| 🗄️ [Daily Threat Hunts v1 (OG)](ThreatHunt-Dashboard.md) | Original 7-hunt pilot, kept for history 
+| --- | --- |
+| 🛡️ [Endpoint Defense Posture](EndpointDefensePosture-Dashboard.md) | All-in-one view of endpoint protection: sensor health, detection trends, custom IOA/IOC health, and prevention coverage |
+| 🩺 [Sensor Health](SensorHealth-Dashboard.md) | Sensor coverage and health: who's reporting, who's gone silent, and what's out of date |
+| 🔎 [Daily Threat Hunts](ThreatHuntV2-Dashboard.md) | 17 daily hunts across execution, identity, persistence, and lateral movement |
+| 🗄️ [Daily Threat Hunts v1 (OG)](ThreatHunt-Dashboard.md) | Original 7-hunt pilot, kept for history |
+
 ---
 
 ## 🎯 Approach
