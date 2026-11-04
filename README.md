@@ -17,14 +17,12 @@ The focus: find the activity alerts miss, check that protection is actually work
 
 ## 📊 Dashboards
 
-| Dashboard | What it does |
-| --- | --- |
-| **🛡️ Endpoint Security** | |
-| [Endpoint Defense Posture](<CS Dashboards 📊/Endpoint Security/EndpointDefensePosture.md>) | All-in-one view: sensor health, detection trends and timeline, custom IOA/IOC health, and prevention coverage |
-| [Sensor Health Telemetry](<CS Dashboards 📊/Endpoint Security/SensorHealthTelemetry.md>) | Who's reporting, who's gone silent, who's flapping, and what's out of date |
-| **🔎 Security Operations** | |
-| [Hunt & Response](<CS Dashboards 📊/Security Operations/Hunt&Response.md>) | Hunts for undetected activity fleet-wide, and audits a compromised host for the IR report |
-| [Triage Detection](<CS Dashboards 📊/Security Operations/TriageDetection.md>) | Detection timeline, host attack path, multi-tactic hosts, and tuning KPIs |
+| Folder | Dashboard | What it does |
+| --- | --- | --- |
+| 🛡️ Endpoint Security | [Endpoint Defense Posture](<CS Dashboards 📊/Endpoint Security/EndpointDefensePosture.md>) | All-in-one view: sensor health, detection trends and timeline, custom IOA/IOC health, and prevention coverage |
+| 🛡️ Endpoint Security | [Sensor Health Telemetry](<CS Dashboards 📊/Endpoint Security/SensorHealthTelemetry.md>) | Who's reporting, who's gone silent, who's flapping, and what's out of date |
+| 🔎 Security Operations | [Hunt & Response](<CS Dashboards 📊/Security Operations/Hunt&Response.md>) | Hunts for undetected activity fleet-wide, and audits a compromised host for the IR report |
+| 🔎 Security Operations | [Triage Detection](<CS Dashboards 📊/Security Operations/TriageDetection.md>) | Detection timeline, host attack path, multi-tactic hosts, and tuning KPIs |
 
 ---
 
