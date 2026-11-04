@@ -1,51 +1,52 @@
 # 🦅 CrowdStrike Engineering
 
-Dashboards, widgets, and queries for the CrowdStrike Falcon platform, built for real SOC and threat hunting work.
+CrowdStrike Falcon dashboards, widgets, hunting queries, and custom detections, built from real SOC work.
 
-More engineering content coming soon.
+The focus: find the activity alerts miss, check that protection is actually working, and keep triage fast, without adding to alert fatigue.
 
 ---
 
-## 📊 Dashboards
+## 🗂️ Repo layout
 
-| Dashboard | What it does |
+| Folder | What's inside |
 | --- | --- |
-| 🛡️ [Endpoint Defense Posture](EndpointDefensePosture-Dashboard.md) | All-in-one view of endpoint protection: sensor health, detection trends, custom IOA/IOC health, and prevention coverage |
-| 🩺 [Sensor Health](SensorHealth-Dashboard.md) | Sensor coverage and health: who's reporting, who's gone silent, and what's out of date |
-| 🔎 [Daily Threat Hunts](ThreatHuntV2-Dashboard.md) | 17 daily hunts across execution, identity, persistence, and lateral movement |
-| 🗄️ [Daily Threat Hunts v1 (OG)](ThreatHunt-Dashboard.md) | Original 7-hunt pilot, kept for history |
+| 📊 [CS Dashboards](<CS Dashboards 📊/>) | Falcon dashboards, each documented with the CQL behind every widget |
+| ↳ 🛡️ [Endpoint Security](<CS Dashboards 📊/Endpoint Security/>) | Protection health: sensor coverage, detections, custom IOA/IOC health, prevention |
+| ↳ 🔎 [Security Operations](<CS Dashboards 📊/Security Operations/>) | Day-to-day SOC work: daily threat hunts and detection triage |
+| 🐦‍🔥 [CS Detection](<CS Detection 🐦‍🔥/>) | Custom IOAs and correlation rules, promoted from hunts that proved high-fidelity |
 
 ---
 
 ## 🎯 Approach
 
-Detections catch what someone already wrote a rule for. This repo covers both sides:
-
-- **Hunting** finds the noisy and undetected activity that alerts miss, as leads for an analyst to investigate without adding to alert fatigue.
-- **Posture** checks the protection itself: sensors running everywhere, rules tuned, and prevention actually on.
-
-Anything that proves high-fidelity gets promoted into a scheduled search or custom IOA.
+- **Hunting** surfaces noisy and undetected activity as leads for an analyst, not as more alerts.
+- **Posture** checks the protection itself: sensors running everywhere, rules tuned, prevention on.
+- **Detection** is where proven hunts end up, as custom rules that fire on their own.
 
 ---
 
-## 🗂️ What's in each dashboard doc
+## ⚙️ Requirements
 
-- Why it exists and what question it answers
-- Parameters and recommended time range
-- The CQL behind every widget, with the chart type to use
-- How to use it, and notes on tuning
+- Built for **Falcon Next-Gen SIEM / Advanced event search** (CQL).
+- Hunts are Windows-focused.
+- Event names and fields can differ between tenants, data sources, and licensed modules. Verify on one raw event before saving a widget.
 
 ---
 
-## 🔜 Coming soon
+## 🧰 CQL notes
 
-- Importable dashboard templates (YAML)
-- More dashboards and widgets
-- Other engineering content
+Lessons learned while building these, useful for anyone adapting them:
+
+- Detections live in `#repo=detections` as `Event_EppDetectionSummaryEvent`, and use `Hostname` instead of `ComputerName`.
+- `case` is its own step: `| case { cond | X := "a"; * | X := "b" }`.
+- `now()` is a step too: `| now(as=NowMs)`, then do the math in `eval()`.
+- Negate regex with `not Field=/regex/`.
+- An optional parameter filter drops events missing that field. Set a default first: `default(field=UserName, value="-")`.
+- Empty result? Check the event name and repo first, then remove filter lines one at a time.
 
 ---
 
 ## 📌 Notes
 
-- Queries are starting points. Field names, exclusions, and approved-tool lists are environment-specific and need tuning before use.
-- Hunts surface activity for human review. They don't alert or take action on their own.
+- Queries are starting points. Exclusions and approved-tool lists are environment-specific.
+- Hunts and dashboards surface activity for human review. They don't alert or take action on their own.
