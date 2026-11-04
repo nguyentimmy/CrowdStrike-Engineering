@@ -8,11 +8,11 @@ CrowdStrike Falcon dashboard for threat hunting and incident response. Same quer
 
 Hunting and IR go hand in hand. A hunt finds a lead, and IR works it. Both need the same visibility, so this dashboard serves both.
 
-**1. 🔎 Hunt mode: find what automation misses.**
-Detections only catch what someone already wrote a rule for. This mode goes after the noisier, lower-confidence activity that never reaches the bar for an alert, and the activity no rule matches. It puts that activity in front of an analyst as a short list to review, so it gets investigated without adding to alert fatigue.
+**1. 🔎 Hunt Mode: Surface Undetected Activity**
+Proactively hunts for noisier, lower-confidence activity that may go undetected or fall outside automated detection coverage. Results are presented as leads for analyst review rather than alerts, so suspicious behavior gets investigated without contributing to alert fatigue.
 
-**2. 🚨 Response mode: audit a compromised host.**
-After a compromise, set `?Hostname` to the device and every widget turns into an investigation of that host. That includes the activity that never alerted. You get one place to audit and track all suspect activity, instead of scrambling across a dozen separate queries, and the output maps straight into the IR report.
+**2. 🚨 Response Mode: Post-Compromise Investigation**
+Identifies post-compromise activity on an affected device that may have gone undetected. It provides a single view to audit and track all suspect activity, removes the need to run multiple separate queries, and supports documentation for the incident response report.
 
 | | 🚨 Detection / alert | 🔎 Threat hunt |
 | --- | --- | --- |
