@@ -1,6 +1,6 @@
 # 🩺 Sensor Health & Coverage
 
-CrowdStrike Falcon dashboard that answers one question: **is the sensor actually running everywhere it should be, and is it healthy?**
+CrowdStrike Falcon Next-Gen SIEM dashboard that answers one question: **is the sensor actually running everywhere it should be, and is it healthy?**
 
 ---
 
@@ -33,7 +33,7 @@ This dashboard shows fleet coverage at a glance, then helps you work the gaps: s
 | `?Hostname` | Filter to one host. Default `*` for the whole fleet |
 | Time range | Set the dashboard to **30 days**. The silent-host widgets need a long window to see who went quiet |
 
-> ⚠️ Written from Falcon event names and fields as I know them. Untested against your tenant. Verify `SensorHeartbeat`, `AgentOnline`, and the `aid_master_main.csv` columns in Advanced event search before saving widgets.
+> ⚠️ Sensor widgets use raw sensor events (`SensorHeartbeat`, `AgentOnline`), which carry `ComputerName` and `aid`, plus the `aid_master_main.csv` lookup. These were confirmed working in your tenant.
 
 ---
 
@@ -46,7 +46,9 @@ This dashboard shows fleet coverage at a glance, then helps you work the gaps: s
 ```
 #event_simpleName=SensorHeartbeat
 | ComputerName=?Hostname
-| @timestamp > now() - 86400000
+| now(as=NowMs)
+| eval(AgeMs = NowMs - @timestamp)
+| test(AgeMs < 86400000)
 | count(aid, distinct=true, as=ActiveHosts)
 ```
 
@@ -58,7 +60,9 @@ This dashboard shows fleet coverage at a glance, then helps you work the gaps: s
 #event_simpleName=SensorHeartbeat
 | ComputerName=?Hostname
 | groupBy([aid], function=max(@timestamp, as=LastSeen))
-| test(LastSeen < now() - 259200000)
+| now(as=NowMs)
+| eval(SilentMs = NowMs - LastSeen)
+| test(SilentMs > 259200000)
 | count(aid, as=SilentHosts)
 ```
 
@@ -70,7 +74,9 @@ This dashboard shows fleet coverage at a glance, then helps you work the gaps: s
 #event_simpleName=SensorHeartbeat
 | ComputerName=?Hostname
 | groupBy([aid], function=min(@timestamp, as=FirstSeen))
-| test(FirstSeen > now() - 604800000)
+| now(as=NowMs)
+| eval(AgeMs = NowMs - FirstSeen)
+| test(AgeMs < 604800000)
 | count(aid, as=NewSensors)
 ```
 
@@ -119,11 +125,11 @@ This dashboard shows fleet coverage at a glance, then helps you work the gaps: s
 | ComputerName=?Hostname
 | groupBy([aid], function=[])
 | match(file="aid_master_main.csv", field=[aid], include=[ProductType], strict=false)
-| HostType := case {
-    ProductType = "1" | "Workstation";
-    ProductType = "2" | "Domain Controller";
-    ProductType = "3" | "Server";
-    * | "Unknown" }
+| case {
+    ProductType = "1" | HostType := "Workstation";
+    ProductType = "2" | HostType := "Domain Controller";
+    ProductType = "3" | HostType := "Server";
+    * | HostType := "Unknown"}
 | groupBy([HostType], function=count(aid, as=Hosts))
 ```
 
@@ -135,13 +141,14 @@ This dashboard shows fleet coverage at a glance, then helps you work the gaps: s
 #event_simpleName=SensorHeartbeat
 | ComputerName=?Hostname
 | groupBy([aid], function=max(@timestamp, as=LastSeen))
-| DaysSilent := (now() - LastSeen) / 86400000
-| Bucket := case {
-    DaysSilent < 1  | "0-1 days";
-    DaysSilent < 3  | "1-3 days";
-    DaysSilent < 7  | "3-7 days";
-    DaysSilent < 14 | "7-14 days";
-    * | "14+ days" }
+| now(as=NowMs)
+| eval(DaysSilent = (NowMs - LastSeen) / 86400000)
+| case {
+    DaysSilent < 1  | Bucket := "0-1 days";
+    DaysSilent < 3  | Bucket := "1-3 days";
+    DaysSilent < 7  | Bucket := "3-7 days";
+    DaysSilent < 14 | Bucket := "7-14 days";
+    * | Bucket := "14+ days"}
 | groupBy([Bucket], function=count(aid, as=Hosts))
 ```
 
@@ -153,8 +160,10 @@ This dashboard shows fleet coverage at a glance, then helps you work the gaps: s
 #event_simpleName=SensorHeartbeat
 | ComputerName=?Hostname
 | groupBy([aid, ComputerName], function=max(@timestamp, as=LastSeen))
-| DaysSilent := round((now() - LastSeen) / 86400000)
+| now(as=NowMs)
+| eval(DaysSilent = (NowMs - LastSeen) / 86400000)
 | test(DaysSilent >= 3)
+| format("%.0f", field=[DaysSilent], as=DaysSilent)
 | match(file="aid_master_main.csv", field=[aid], include=[AgentVersion, Version, MachineDomain, OU], strict=false)
 | LastSeen := formatTime("%Y-%m-%d %H:%M", field=LastSeen)
 | table([ComputerName, DaysSilent, LastSeen, AgentVersion, Version, MachineDomain, OU], limit=200)

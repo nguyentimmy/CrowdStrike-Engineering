@@ -57,7 +57,7 @@ That's also what keeps it from becoming alert fatigue. A rule loose enough to ca
 | `?Hostname` | Scope every widget to one host. Default `*` hunts fleet-wide |
 | `?User` | Scope to one account. Default `*`. Useful once a hunt points at a specific identity |
 
-> ⚠️ Written from Falcon event names and fields as I know them. Untested against your tenant. Verify field names (especially `UserName`, `UserIsAdmin_decimal`, the ASEP and scheduled task fields, and the driver fields) in Advanced event search before saving widgets.
+> ⚠️ Endpoint hunts search raw sensor events (`ProcessRollup2`, `UserLogon`, `NetworkConnectIP4`, and so on). Every query uses a `?User` filter that defaults a missing `UserName` to `-`, so events without a user field are not dropped. If a hunt returns nothing, remove one filter line at a time to find the field that does not exist on that event, then swap in the real field name.
 
 ---
 
@@ -69,7 +69,9 @@ Classic phishing execution. Often the first event in a chain that later shows up
 
 ```
 #event_simpleName=ProcessRollup2
-| ComputerName=?Hostname UserName=?User
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
 | in(ParentBaseFileName, values=["winword.exe","excel.exe","outlook.exe","powerpnt.exe","mspub.exe","visio.exe","onenote.exe"], ignoreCase=true)
 | in(FileName, values=["cmd.exe","powershell.exe","pwsh.exe","wscript.exe","cscript.exe","mshta.exe","rundll32.exe","regsvr32.exe"], ignoreCase=true)
 | table([@timestamp, ComputerName, UserName, ParentBaseFileName, FileName, CommandLine, SHA256HashData], limit=200)
@@ -83,10 +85,11 @@ Two views. The first surfaces suspicious patterns. The second counts by command 
 ```
 // 2a. Suspicious patterns
 #event_simpleName=ProcessRollup2
-| ComputerName=?Hostname UserName=?User
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
 | in(FileName, values=["powershell.exe","pwsh.exe"], ignoreCase=true)
-| CommandLine=/(DownloadFile|DownloadString|DownloadData|Invoke-Expression|\biex\b|EncodedCommand|\s-enc\s|\s-ec\s|FromBase64String|Net\.WebClient|Start-BitsTransfer|Invoke-WebRequest)/i
-    OR (CommandLine=/-WindowStyle\s+Hidden/i AND CommandLine=/-ExecutionPolicy\s+Bypass/i)
+| (CommandLine=/(DownloadFile|DownloadString|DownloadData|Invoke-Expression|\biex\b|EncodedCommand|\s-enc\s|\s-ec\s|FromBase64String|Net\.WebClient|Start-BitsTransfer|Invoke-WebRequest)/i OR (CommandLine=/-WindowStyle\s+Hidden/i AND CommandLine=/-ExecutionPolicy\s+Bypass/i))
 | table([@timestamp, ComputerName, UserName, ParentBaseFileName, CommandLine], limit=200)
 | sort(@timestamp, order=desc)
 ```
@@ -94,7 +97,9 @@ Two views. The first surfaces suspicious patterns. The second counts by command 
 ```
 // 2b. Frequency view: rare command lines sort to the top
 #event_simpleName=ProcessRollup2
-| ComputerName=?Hostname UserName=?User
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
 | in(FileName, values=["powershell.exe","pwsh.exe"], ignoreCase=true)
 | groupBy([CommandLine], function=[count(as=Executions), count(ComputerName, distinct=true, as=Hosts)])
 | sort(Executions, order=asc, limit=100)
@@ -106,7 +111,9 @@ Highest-value hunt. An attacker blinding your tooling is time-sensitive.
 
 ```
 #event_simpleName=ProcessRollup2
-| ComputerName=?Hostname UserName=?User
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
 | CommandLine=/(DisableRealtimeMonitoring|DisableBehaviorMonitoring|Set-MpPreference|Add-MpPreference\s+-ExclusionPath|DisableAntiSpyware|DisableAntiVirus|wevtutil\s+cl|Clear-EventLog|auditpol\s+\/clear|fsutil\s+usn\s+deletejournal|TamperProtection|AmsiScanBuffer|amsiInitFailed|Remove-MpPreference)/i
 | table([@timestamp, ComputerName, UserName, ParentBaseFileName, FileName, CommandLine], limit=200)
 | sort(@timestamp, order=desc)
@@ -131,7 +138,9 @@ Persistence usually gets planted the same day as initial access. This catches it
 
 ```
 #event_simpleName=ProcessRollup2
-| ComputerName=?Hostname UserName=?User
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
 | CommandLine=/(schtasks\s+\/create|\/sc\s+onlogon|\/sc\s+onstart|\/ru\s+system|New-ScheduledTask|Register-ScheduledTask|sc\s+create|New-Service)/i
 | table([@timestamp, ComputerName, UserName, ParentBaseFileName, FileName, CommandLine], limit=200)
 | sort(@timestamp, order=desc)
@@ -143,9 +152,13 @@ Often the difference between "employee installed something" and "someone has han
 
 ```
 #event_simpleName=ProcessRollup2
-| ComputerName=?Hostname UserName=?User
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
 | in(FileName, values=["AnyDesk.exe","RustDesk.exe","QuickAssist.exe","AeroAdmin.exe","Supremo.exe","ammyy.exe","ScreenConnect.Client.exe","ConnectWiseControl.Client.exe","SplashtopSOS.exe","LogMeIn.exe","GoToAssist.exe","ZohoAssist.exe","RemotePC.exe","meshagent.exe","dwagent.exe","rutserv.exe","Radmin.exe","winvnc.exe","tvnserver.exe","uvnc_service.exe","vncviewer.exe","ngrok.exe","frpc.exe","chisel.exe","cloudflared.exe","plink.exe"], ignoreCase=true)
-| Tool := if(in(FileName, values=["ngrok.exe","frpc.exe","chisel.exe","cloudflared.exe","plink.exe"], ignoreCase=true), then="Tunneling Tool", else="Remote Tool")
+| case {
+    in(FileName, values=["ngrok.exe","frpc.exe","chisel.exe","cloudflared.exe","plink.exe"], ignoreCase=true) | Tool := "Tunneling Tool";
+    * | Tool := "Remote Tool" }
 | table([@timestamp, ComputerName, UserName, Tool, FileName, CommandLine, SHA256HashData], limit=200)
 | sort(@timestamp, order=desc)
 ```
@@ -173,9 +186,11 @@ Accounts that log into many different hosts. Normal for admins and service accou
 
 ```
 #event_simpleName=UserLogon
-| ComputerName=?Hostname UserName=?User
-| UserName!=/\$$/
-| UserName!=/^(SYSTEM|LOCAL SERVICE|NETWORK SERVICE|DWM-.*|UMFD-.*)$/i
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
+| not UserName=/\$$/
+| not UserName=/^(SYSTEM|LOCAL SERVICE|NETWORK SERVICE|DWM-.*|UMFD-.*)$/i
 | groupBy([UserName], function=[count(ComputerName, distinct=true, as=HostsLoggedInto), count(as=Logons), min(@timestamp, as=FirstLogon)])
 | test(HostsLoggedInto >= 5)
 | sort(HostsLoggedInto, order=desc, limit=100)
@@ -187,11 +202,15 @@ Admin accounts logging in somewhere they haven't before. Run over a long window 
 
 ```
 #event_simpleName=UserLogon
-| ComputerName=?Hostname UserName=?User
-| UserIsAdmin_decimal=1
-| UserName!=/\$$/
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
+| UserIsAdmin=1
+| not UserName=/\$$/
 | groupBy([UserName, ComputerName], function=[min(@timestamp, as=FirstSeen), count(as=Logons)])
-| test(FirstSeen > now() - 86400000)
+| now(as=NowMs)
+| eval(AgeMs = NowMs - FirstSeen)
+| test(AgeMs < 86400000)
 | FirstSeen := formatTime("%Y-%m-%d %H:%M", field=FirstSeen)
 | sort(FirstSeen, order=desc, limit=200)
 ```
@@ -202,7 +221,9 @@ LSASS access and dumping tools. Highest-value identity hunt, since a hit here us
 
 ```
 #event_simpleName=ProcessRollup2
-| ComputerName=?Hostname UserName=?User
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
 | CommandLine=/(mimikatz|sekurlsa|logonpasswords|lsadump|procdump.*lsass|comsvcs.*MiniDump|MiniDumpWriteDump|nanodump|lsass\.dmp|Out-Minidump|pypykatz|lsassy|Invoke-Mimikatz|DumpCreds)/i
 | table([@timestamp, ComputerName, UserName, ParentBaseFileName, FileName, CommandLine, SHA256HashData], limit=200)
 | sort(@timestamp, order=desc)
@@ -214,7 +235,9 @@ Endpoint-side tooling for requesting and cracking service tickets. Ticket-level 
 
 ```
 #event_simpleName=ProcessRollup2
-| ComputerName=?Hostname UserName=?User
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
 | CommandLine=/(Invoke-Kerberoast|GetUserSPNs|Rubeus.*kerberoast|setspn\s+-[ql]|Get-DomainSPNTicket|Request-SPNTicket)/i
 | table([@timestamp, ComputerName, UserName, ParentBaseFileName, FileName, CommandLine], limit=200)
 | sort(@timestamp, order=desc)
@@ -242,7 +265,9 @@ Registered tasks and what they execute. Look for tasks pointing at user-writable
 
 ```
 #event_simpleName=ScheduledTaskRegistered
-| ComputerName=?Hostname UserName=?User
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
 | table([@timestamp, ComputerName, UserName, TaskName, TaskExecCommand, TaskExecArguments], limit=200)
 | sort(@timestamp, order=desc)
 ```
@@ -253,7 +278,9 @@ WMI event subscriptions are a quiet, fileless persistence method. Legitimate use
 
 ```
 #event_simpleName=ProcessRollup2
-| ComputerName=?Hostname UserName=?User
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
 | CommandLine=/(__EventFilter|CommandLineEventConsumer|ActiveScriptEventConsumer|__FilterToConsumerBinding|Register-WmiEvent|Set-WmiInstance)/i
 | table([@timestamp, ComputerName, UserName, ParentBaseFileName, FileName, CommandLine], limit=200)
 | sort(@timestamp, order=desc)
@@ -281,9 +308,10 @@ PsExec and its clones, remote service creation, WinRM, WMI remote execution, and
 
 ```
 #event_simpleName=ProcessRollup2
-| ComputerName=?Hostname UserName=?User
-| in(FileName, values=["psexec.exe","psexesvc.exe","paexec.exe","winrs.exe"], ignoreCase=true)
-    OR CommandLine=/(Invoke-Command|Enter-PSSession|New-PSSession|wmic\s+\/node|Invoke-WmiMethod|Invoke-SMBExec|sc(\.exe)?\s+\\\\|\\\\[^\\\s]+\\(admin|c)\$)/i
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
+| (in(FileName, values=["psexec.exe","psexesvc.exe","paexec.exe","winrs.exe"], ignoreCase=true) OR CommandLine=/(Invoke-Command|Enter-PSSession|New-PSSession|wmic\s+\/node|Invoke-WmiMethod|Invoke-SMBExec|sc(\.exe)?\s+\\\\|\\\\[^\\\s]+\\(admin|c)\$)/i)
 | table([@timestamp, ComputerName, UserName, ParentBaseFileName, FileName, CommandLine], limit=200)
 | sort(@timestamp, order=desc)
 ```
@@ -294,11 +322,13 @@ One source reaching many hosts through network or remote interactive logons. Thi
 
 ```
 #event_simpleName=UserLogon
-| ComputerName=?Hostname UserName=?User
-| in(LogonType_decimal, values=["3","10"])
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
+| in(LogonType, values=["3","10"])
 | RemoteAddressIP4=*
 | !cidr(RemoteAddressIP4, subnet=["127.0.0.0/8"])
-| UserName!=/\$$/
+| not UserName=/\$$/
 | groupBy([RemoteAddressIP4, UserName], function=[count(ComputerName, distinct=true, as=HostsReached), count(as=Logons), min(@timestamp, as=FirstSeen), max(@timestamp, as=LastSeen)])
 | test(HostsReached >= 3)
 | sort(HostsReached, order=desc, limit=100)

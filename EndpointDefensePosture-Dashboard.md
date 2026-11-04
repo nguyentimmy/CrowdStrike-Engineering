@@ -1,4 +1,4 @@
-# 🛡️ Endpoint Security Command Center
+# 🛡️ Endpoint Defense Posture
 
 All-in-one CrowdStrike Falcon dashboard for endpoint security health. It answers one question: **is our endpoint protection running everywhere, working as intended, and tuned well?**
 
@@ -13,7 +13,7 @@ It brings four views into one place, ordered from the foundation up:
 | # | Section | Question it answers |
 | --- | --- | --- |
 | 1 | 🩺 **Sensor Health** | Is the sensor running and healthy on every host? |
-| 2 | 📈 **Detection Trends** | What's firing, how severe, and where is the noise? |
+| 2 | 📈 **Detection Trends & Timeline** | What's firing, how severe, where is the noise, and what should I triage first? |
 | 3 | 🎯 **Custom IOA / IOC Health** | Which of our own rules are working, noisy, or dead weight? |
 | 4 | 🧱 **Prevention Coverage** | Are we blocking, or only detecting? Are settings actually on? |
 
@@ -28,7 +28,7 @@ It brings four views into one place, ordered from the foundation up:
 | `?Hostname` | Filter to one host. Default `*` for the whole fleet |
 | Time range | **30 days** for Sensor Health (the silent-host widgets need a long window). **7 to 30 days** for detections and IOA/IOC |
 
-> ⚠️ Written from Falcon event names and fields as I know them. Untested against your tenant. Verify event and field names (`SensorHeartbeat`, `AgentOnline`, `EppDetectionSummaryEvent`, `aid_master_main.csv` columns) in Advanced event search before saving widgets.
+> ⚠️ Detection queries use the `detections` repo and `Event_EppDetectionSummaryEvent`. In your tenant the host field is `Hostname` (confirmed by a working query). Other detection fields (`Name`, `FileName`, `PatternDispositionDescription`, `Tactic`, `Technique`, `UserName`) follow that same working query. If a column shows blank in a widget, that field doesn't exist on your events, so swap it for the real one.
 
 ---
 
@@ -40,7 +40,9 @@ It brings four views into one place, ordered from the foundation up:
 ```
 #event_simpleName=SensorHeartbeat
 | ComputerName=?Hostname
-| @timestamp > now() - 86400000
+| now(as=NowMs)
+| eval(AgeMs = NowMs - @timestamp)
+| test(AgeMs < 86400000)
 | count(aid, distinct=true, as=ActiveHosts)
 ```
 
@@ -51,7 +53,9 @@ It brings four views into one place, ordered from the foundation up:
 #event_simpleName=SensorHeartbeat
 | ComputerName=?Hostname
 | groupBy([aid], function=max(@timestamp, as=LastSeen))
-| test(LastSeen < now() - 259200000)
+| now(as=NowMs)
+| eval(SilentMs = NowMs - LastSeen)
+| test(SilentMs > 259200000)
 | count(aid, as=SilentHosts)
 ```
 
@@ -84,11 +88,11 @@ It brings four views into one place, ordered from the foundation up:
 | ComputerName=?Hostname
 | groupBy([aid], function=[])
 | match(file="aid_master_main.csv", field=[aid], include=[ProductType], strict=false)
-| HostType := case {
-    ProductType = "1" | "Workstation";
-    ProductType = "2" | "Domain Controller";
-    ProductType = "3" | "Server";
-    * | "Unknown" }
+| case {
+    ProductType = "1" | HostType := "Workstation";
+    ProductType = "2" | HostType := "Domain Controller";
+    ProductType = "3" | HostType := "Server";
+    * | HostType := "Unknown"}
 | groupBy([HostType], function=count(aid, as=Hosts))
 ```
 
@@ -99,13 +103,14 @@ It brings four views into one place, ordered from the foundation up:
 #event_simpleName=SensorHeartbeat
 | ComputerName=?Hostname
 | groupBy([aid], function=max(@timestamp, as=LastSeen))
-| DaysSilent := (now() - LastSeen) / 86400000
-| Bucket := case {
-    DaysSilent < 1  | "0-1 days";
-    DaysSilent < 3  | "1-3 days";
-    DaysSilent < 7  | "3-7 days";
-    DaysSilent < 14 | "7-14 days";
-    * | "14+ days" }
+| now(as=NowMs)
+| eval(DaysSilent = (NowMs - LastSeen) / 86400000)
+| case {
+    DaysSilent < 1  | Bucket := "0-1 days";
+    DaysSilent < 3  | Bucket := "1-3 days";
+    DaysSilent < 7  | Bucket := "3-7 days";
+    DaysSilent < 14 | Bucket := "7-14 days";
+    * | Bucket := "14+ days"}
 | groupBy([Bucket], function=count(aid, as=Hosts))
 ```
 
@@ -119,8 +124,10 @@ The work queue. Four ways a sensor can be unhealthy.
 #event_simpleName=SensorHeartbeat
 | ComputerName=?Hostname
 | groupBy([aid, ComputerName], function=max(@timestamp, as=LastSeen))
-| DaysSilent := round((now() - LastSeen) / 86400000)
+| now(as=NowMs)
+| eval(DaysSilent = (NowMs - LastSeen) / 86400000)
 | test(DaysSilent >= 3)
+| format("%.0f", field=[DaysSilent], as=DaysSilent)
 | match(file="aid_master_main.csv", field=[aid], include=[AgentVersion, Version, MachineDomain, OU], strict=false)
 | LastSeen := formatTime("%Y-%m-%d %H:%M", field=LastSeen)
 | table([ComputerName, DaysSilent, LastSeen, AgentVersion, Version, MachineDomain, OU], limit=200)
@@ -137,7 +144,8 @@ The work queue. Four ways a sensor can be unhealthy.
     {#event_simpleName=ProcessRollup2 | count(as=ProcessEvents)}
   ], limit=max)
 | default(field=ProcessEvents, value=0)
-| test(Heartbeats > 0 AND ProcessEvents == 0)
+| test(Heartbeats > 0)
+| test(ProcessEvents == 0)
 | sort(Heartbeats, order=desc, limit=200)
 ```
 
@@ -164,23 +172,23 @@ The work queue. Four ways a sensor can be unhealthy.
 
 ---
 
-## 📈 2. Detection Trends
+## 📈 2. Detection Trends & Timeline
 
 ### 🧭 Detections by Severity Over Time
 *Time chart (stacked).* Watch for spikes and for severity creeping up.
 
 ```
-#event_simpleName=EppDetectionSummaryEvent
-| ComputerName=?Hostname
-| timeChart(span=1d, series=SeverityName, function=count(aid, as=Detections))
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| timeChart(span=1d, series=SeverityName, function=count(as=Detections))
 ```
 
 ### 🎯 Detections by Tactic
 *Bar chart.* Shows which parts of the attack path are generating the most activity.
 
 ```
-#event_simpleName=EppDetectionSummaryEvent
-| ComputerName=?Hostname
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
 | groupBy([Tactic], function=count(as=Detections))
 | sort(Detections, order=desc)
 ```
@@ -189,24 +197,35 @@ The work queue. Four ways a sensor can be unhealthy.
 *Pie chart.* Servers and DCs generating detections matter more than laptops.
 
 ```
-#event_simpleName=EppDetectionSummaryEvent
-| ComputerName=?Hostname
-| match(file="aid_master_main.csv", field=[aid], include=[ProductType], strict=false)
-| HostType := case {
-    ProductType = "1" | "Workstation";
-    ProductType = "2" | "Domain Controller";
-    ProductType = "3" | "Server";
-    * | "Unknown" }
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| match(file="aid_master_main.csv", field=Hostname, column=ComputerName, include=[ProductType], strict=false)
+| case {
+    ProductType = "1" | HostType := "Workstation";
+    ProductType = "2" | HostType := "Domain Controller";
+    ProductType = "3" | HostType := "Server";
+    * | HostType := "Unknown"}
 | groupBy([HostType], function=count(as=Detections))
 ```
 
-### 🔊 Noisiest Detections
-*Table.* The top tuning candidates. High count on many hosts usually means a benign tool or a rule that needs an exclusion.
+### 🔥 What's Firing (All Detections)
+*Table.* Every detection type that fired, by category and technique, with how many hosts it hit and when it last fired. The quickest read on what's active.
 
 ```
-#event_simpleName=EppDetectionSummaryEvent
-| ComputerName=?Hostname
-| groupBy([Name, Tactic, SeverityName], function=[count(as=Detections), count(aid, distinct=true, as=Hosts)])
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| groupBy([Name, Technique], function=[count(as=Fires), count(Hostname, distinct=true, as=Hosts), max(@timestamp, as=LastFired)])
+| LastFired := formatTime("%Y-%m-%d %H:%M", field=LastFired)
+| sort(Fires, order=desc, limit=50)
+```
+
+### 🔊 Noisiest Detections
+*Table.* The top tuning candidates. `Name` is a broad category (Suspicious Activity, Ransomware), so `Technique` carries the detail. High count on many hosts usually means a benign tool or a rule that needs an exclusion.
+
+```
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| groupBy([Technique, Tactic, Name, SeverityName], function=[count(as=Detections), count(Hostname, distinct=true, as=Hosts)])
 | sort(Detections, order=desc, limit=25)
 ```
 
@@ -214,27 +233,122 @@ The work queue. Four ways a sensor can be unhealthy.
 *Table.* The same host showing up again and again means either a real problem or a tool that keeps tripping.
 
 ```
-#event_simpleName=EppDetectionSummaryEvent
-| ComputerName=?Hostname
-| groupBy([ComputerName], function=[count(as=Detections), count(Name, distinct=true, as=UniqueDetections), max(@timestamp, as=LastDetection)])
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| groupBy([Hostname], function=[count(as=Detections), count(Name, distinct=true, as=UniqueDetections), max(@timestamp, as=LastDetection)])
 | LastDetection := formatTime("%Y-%m-%d %H:%M", field=LastDetection)
 | sort(Detections, order=desc, limit=25)
+```
+
+### ⏱️ Detection Timeline (Triage)
+*Table.* The main triage view. Newest first, severity flagged, with the context an analyst needs to decide quickly. Narrow it with `?Hostname` or the time range.
+
+```
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| case {
+    SeverityName = "Critical" | Sev := "🔴 Critical";
+    SeverityName = "High"     | Sev := "🟠 High";
+    SeverityName = "Medium"   | Sev := "🟡 Medium";
+    * | Sev := "⚪ Low"}
+| Time := formatTime("%Y-%m-%d %H:%M:%S", field=@timestamp)
+| table([Time, Sev, Hostname, UserName, Tactic, Technique, Name, FileName, CommandLine, PatternDispositionDescription], limit=500)
+| sort(Time, order=desc)
+```
+
+### 🧵 Host Attack Path (Single Host)
+*Table.* Set `?Hostname` to one host. Oldest first, so the detections read as a story: what happened first, and how it progressed through the tactics.
+
+```
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| Time := formatTime("%Y-%m-%d %H:%M:%S", field=@timestamp)
+| table([Time, Tactic, Technique, Name, SeverityName, FileName, CommandLine, PatternDispositionDescription], limit=500)
+| sort(Time, order=asc)
+```
+
+### 🚨 Hosts Hitting Multiple Tactics
+*Table.* A host with detections across three or more tactics looks like an attack progressing, not a one-off. Triage these first.
+
+```
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| groupBy([Hostname], function=[count(Tactic, distinct=true, as=TacticsHit), count(as=Detections), collect([Tactic], limit=10), max(@timestamp, as=LastDetection)])
+| test(TacticsHit >= 3)
+| LastDetection := formatTime("%Y-%m-%d %H:%M", field=LastDetection)
+| sort(TacticsHit, order=desc, limit=50)
+```
+
+### 🧠 Detections by Technique
+*Bar chart.* The top techniques seen, which maps directly to MITRE ATT&CK.
+
+```
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| groupBy([Technique], function=count(as=Detections))
+| sort(Detections, order=desc, limit=15)
+```
+
+### 🆕 New Detection Types (Last 7 Days)
+*Table.* Techniques that first appeared this week. New behavior in your environment is worth a look, since it's either a new threat or a new tool. Use a 30-day range.
+
+```
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| groupBy([Technique, Tactic, Name, SeverityName], function=[min(@timestamp, as=FirstSeen), count(as=Detections), count(Hostname, distinct=true, as=Hosts)])
+| now(as=NowMs)
+| eval(AgeMs = NowMs - FirstSeen)
+| test(AgeMs < 604800000)
+| FirstSeen := formatTime("%Y-%m-%d %H:%M", field=FirstSeen)
+| sort(Detections, order=desc, limit=50)
+```
+
+### 🕒 Detections by Hour of Day
+*Bar chart.* Detections clustering outside business hours can point to hands-on-keyboard activity or automation running off-schedule.
+
+```
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| Hour := formatTime("%H", field=@timestamp)
+| groupBy([Hour], function=count(as=Detections))
+| sort(Hour, order=asc)
+```
+
+### 👤 Detections by User
+*Table.* Accounts tied to the most detections. Useful for spotting a compromised account or a user who keeps running risky tools.
+
+```
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| UserName=*
+| groupBy([UserName], function=[count(as=Detections), count(Hostname, distinct=true, as=Hosts), count(Name, distinct=true, as=UniqueDetections)])
+| sort(Detections, order=desc, limit=25)
+```
+
+### 🧾 Top Triggering Files
+*Bar chart.* The files and processes behind the most detections. A common benign binary at the top usually means a tuning opportunity.
+
+```
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| groupBy([FileName], function=[count(as=Detections), count(Hostname, distinct=true, as=Hosts)])
+| sort(Detections, order=desc, limit=15)
 ```
 
 ---
 
 ## 🎯 3. Custom IOA / IOC Health
 
-Custom rules show up in detection events under the **Custom Intelligence** tactic.
+Custom rules normally show up in detection events under the **Custom Intelligence** tactic. The filter below also catches "indicator" techniques and detections with "custom" in the name. If nothing has fired in the window, these widgets stay empty. That is expected, not a bug. Use a 30 to 90 day range, or trigger a test rule to confirm.
 
 ### 🔥 What's Firing
 *Table.* Every custom rule that has fired, with volume and reach.
 
 ```
-#event_simpleName=EppDetectionSummaryEvent
-| ComputerName=?Hostname
-| Tactic="Custom Intelligence"
-| groupBy([Name, Technique], function=[count(as=Fires), count(aid, distinct=true, as=Hosts), max(@timestamp, as=LastFired)])
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| (Tactic="Custom Intelligence" OR Technique=/indicator of (attack|compromise)/i OR Name=/custom/i)
+| groupBy([Name, Technique], function=[count(as=Fires), count(Hostname, distinct=true, as=Hosts), max(@timestamp, as=LastFired)])
 | LastFired := formatTime("%Y-%m-%d %H:%M", field=LastFired)
 | sort(Fires, order=desc, limit=50)
 ```
@@ -243,9 +357,9 @@ Custom rules show up in detection events under the **Custom Intelligence** tacti
 *Bar chart.* Rules firing far more than anything else are tuning candidates, or are catching something real that's being ignored.
 
 ```
-#event_simpleName=EppDetectionSummaryEvent
-| ComputerName=?Hostname
-| Tactic="Custom Intelligence"
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| (Tactic="Custom Intelligence" OR Technique=/indicator of (attack|compromise)/i OR Name=/custom/i)
 | groupBy([Name], function=count(as=Fires))
 | sort(Fires, order=desc, limit=15)
 ```
@@ -254,9 +368,9 @@ Custom rules show up in detection events under the **Custom Intelligence** tacti
 *Time chart.* A rule that fired daily and went quiet might be fixed, or might be broken.
 
 ```
-#event_simpleName=EppDetectionSummaryEvent
-| ComputerName=?Hostname
-| Tactic="Custom Intelligence"
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
+| (Tactic="Custom Intelligence" OR Technique=/indicator of (attack|compromise)/i OR Name=/custom/i)
 | timeChart(span=1d, series=Name, function=count(as=Fires))
 ```
 
@@ -280,8 +394,8 @@ Event data shows what prevention **did**. Policy settings live in the console. T
 *Pie chart.* A large "detected only" share on high-severity detections is the clearest sign of a prevention gap.
 
 ```
-#event_simpleName=EppDetectionSummaryEvent
-| ComputerName=?Hostname
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
 | groupBy([PatternDispositionDescription], function=count(as=Detections))
 | sort(Detections, order=desc)
 ```
@@ -290,12 +404,12 @@ Event data shows what prevention **did**. Policy settings live in the console. T
 *Table.* The work queue. Each row is something serious that got through to detection only.
 
 ```
-#event_simpleName=EppDetectionSummaryEvent
-| ComputerName=?Hostname
+#repo=detections #event_simpleName=Event_EppDetectionSummaryEvent
+| Hostname=?Hostname
 | in(SeverityName, values=["High","Critical"], ignoreCase=true)
 | PatternDispositionDescription=/detection/i
-| PatternDispositionDescription!=/blocked|prevented|quarantined|killed/i
-| table([@timestamp, ComputerName, SeverityName, Tactic, Name, FileName, CommandLine, PatternDispositionDescription], limit=200)
+| not PatternDispositionDescription=/blocked|prevented|quarantined|killed/i
+| table([@timestamp, Hostname, SeverityName, Tactic, Name, FileName, CommandLine, PatternDispositionDescription], limit=200)
 | sort(@timestamp, order=desc)
 ```
 
@@ -331,5 +445,5 @@ For a repeatable report, pull policies with the API or PSFalcon (for example `Ge
 - A silent host isn't always unhealthy. Laptops, travel, and PTO create gaps. Judge by pattern, not by one host.
 - Clean decommissioned hosts out of Falcon so they don't inflate the silent count.
 - The version, OS, and host-type widgets depend on `aid_master_main.csv`. Adjust the `include=` lists if columns differ in your tenant.
-- Detection fields (`SeverityName`, `Tactic`, `PatternDispositionDescription`) can differ between tenants. Check one raw event first.
+- Detection data lives in the `detections` repo. Identity detections (`Event_IdpDetectionSummaryEvent`) and correlation rule detections (`Event_CorrelationRuleDetectionSummaryEvent`) are also available, and could become their own widgets.
 - **Next step:** a coverage % against a baseline, using your AD or Intune host list as a lookup file. That needs the list uploaded to Falcon.
