@@ -11,15 +11,26 @@ The focus: find the activity alerts miss, check that protection is actually work
 | Folder | What's inside |
 | --- | --- |
 | 📊 [CS Dashboards](<CS Dashboards 📊/>) | Falcon dashboards, each documented with the CQL behind every widget |
-| ↳ 🛡️ [Endpoint Security](<CS Dashboards 📊/Endpoint Security/>) | Protection health: sensor coverage, detections, custom IOA/IOC health, prevention |
-| ↳ 🔎 [Security Operations](<CS Dashboards 📊/Security Operations/>) | Day-to-day SOC work: daily threat hunts and detection triage |
 | 🐦‍🔥 [CS Detection](<CS Detection 🐦‍🔥/>) | Custom IOAs and correlation rules, promoted from hunts that proved high-fidelity |
+
+---
+
+## 📊 Dashboards
+
+| Dashboard | What it does |
+| --- | --- |
+| **🛡️ Endpoint Security** | |
+| [Endpoint Defense Posture](<CS Dashboards 📊/Endpoint Security/EndpointDefensePosture.md>) | All-in-one view: sensor health, detection trends and timeline, custom IOA/IOC health, and prevention coverage |
+| [Sensor Health Telemetry](<CS Dashboards 📊/Endpoint Security/SensorHealthTelemetry.md>) | Who's reporting, who's gone silent, who's flapping, and what's out of date |
+| **🔎 Security Operations** | |
+| [Hunt & Response](<CS Dashboards 📊/Security Operations/Hunt&Response.md>) | Hunts for undetected activity fleet-wide, and audits a compromised host for the IR report |
+| [Triage Detection](<CS Dashboards 📊/Security Operations/TriageDetection.md>) | Detection timeline, host attack path, multi-tactic hosts, and tuning KPIs |
 
 ---
 
 ## 🎯 Approach
 
-- **Hunting** surfaces noisy and undetected activity as leads for an analyst, not as more alerts.
+- **Hunt & Response** surfaces noisy and undetected activity as leads, then audits a compromised host end to end.
 - **Posture** checks the protection itself: sensors running everywhere, rules tuned, prevention on.
 - **Detection** is where proven hunts end up, as custom rules that fire on their own.
 
@@ -33,20 +44,8 @@ The focus: find the activity alerts miss, check that protection is actually work
 
 ---
 
-## 🧰 CQL notes
-
-Lessons learned while building these, useful for anyone adapting them:
-
-- Detections live in `#repo=detections` as `Event_EppDetectionSummaryEvent`, and use `Hostname` instead of `ComputerName`.
-- `case` is its own step: `| case { cond | X := "a"; * | X := "b" }`.
-- `now()` is a step too: `| now(as=NowMs)`, then do the math in `eval()`.
-- Negate regex with `not Field=/regex/`.
-- An optional parameter filter drops events missing that field. Set a default first: `default(field=UserName, value="-")`.
-- Empty result? Check the event name and repo first, then remove filter lines one at a time.
-
----
-
 ## 📌 Notes
 
 - Queries are starting points. Exclusions and approved-tool lists are environment-specific.
 - Hunts and dashboards surface activity for human review. They don't alert or take action on their own.
+- Tuning is most likely required for each environment, don't expect for this to work 100% out the box.
