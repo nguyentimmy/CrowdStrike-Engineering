@@ -1,14 +1,18 @@
-# 🔎 Daily Threat Hunts
+# 🔎 Hunt & Response
 
-CrowdStrike Falcon dashboard for proactive, technique-level hunting. It covers the full attack path: execution, evasion, identity, persistence, and lateral movement.
+CrowdStrike Falcon dashboard for threat hunting and incident response. Same queries, two modes: sweep the fleet for what alerts miss, or audit one compromised host end to end.
 
 ---
 
 ## 🎯 Why this exists
 
-Detections only catch what someone already wrote a rule for. Threat hunting goes after the rest: the noisier, lower-confidence activity that never reaches the bar for an alert, and the activity that goes undetected because no rule matches it.
+Hunting and IR go hand in hand. A hunt finds a lead, and IR works it. Both need the same visibility, so this dashboard serves both.
 
-That's also what keeps it from becoming alert fatigue. A rule loose enough to catch this stuff would page someone all day. A hunt puts the same activity in front of an analyst on a schedule, as a short list to review, so unusual behavior gets investigated without being turned into more alerts.
+**1. 🔎 Hunt mode: find what automation misses.**
+Detections only catch what someone already wrote a rule for. This mode goes after the noisier, lower-confidence activity that never reaches the bar for an alert, and the activity no rule matches. It puts that activity in front of an analyst as a short list to review, so it gets investigated without adding to alert fatigue.
+
+**2. 🚨 Response mode: audit a compromised host.**
+After a compromise, set `?Hostname` to the device and every widget turns into an investigation of that host. That includes the activity that never alerted. You get one place to audit and track all suspect activity, instead of scrambling across a dozen separate queries, and the output maps straight into the IR report.
 
 | | 🚨 Detection / alert | 🔎 Threat hunt |
 | --- | --- | --- |
@@ -50,12 +54,14 @@ That's also what keeps it from becoming alert fatigue. A rule loose enough to ca
 
 ---
 
-## 🎛️ Parameters
+## 🎛️ Parameters and modes
 
-| Parameter | Use |
-| --- | --- |
-| `?Hostname` | Scope every widget to one host. Default `*` hunts fleet-wide |
-| `?User` | Scope to one account. Default `*`. Useful once a hunt points at a specific identity |
+| Setting | 🔎 Hunt mode | 🚨 Response mode |
+| --- | --- | --- |
+| `?Hostname` | `*` (whole fleet) | The compromised host |
+| `?User` | `*` | `*`, or the compromised account |
+| Time range | 24 hours for execution hunts, 7 to 30 days for identity and persistence | 30 days or more, starting before the suspected initial access |
+| Read results | Newest first, skim for what looks unusual | Oldest first, build the story |
 
 > ⚠️ Endpoint hunts search raw sensor events (`ProcessRollup2`, `UserLogon`, `NetworkConnectIP4`, and so on). Every query uses a `?User` filter that defaults a missing `UserName` to `-`, so events without a user field are not dropped. If a hunt returns nothing, remove one filter line at a time to find the field that does not exist on that event, then swap in the real field name.
 
@@ -336,22 +342,133 @@ One source reaching many hosts through network or remote interactive logons. Thi
 
 ---
 
+## 🚨 Response Toolkit (single host)
+
+Set `?Hostname` to the compromised device before running these. Fleet-wide, they're heavy and noisy.
+
+### 18. 🧾 Response Timeline: All Suspect Activity
+*Table.* The core IR widget. Every suspect signal on the host, labeled and severity-ranked, in one chronological timeline. This is the evidence table for the IR report.
+
+```
+#event_simpleName=/^(ProcessRollup2|NetworkConnectIP4|AsepValueUpdate|ScheduledTaskRegistered|UserLogon)$/
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| UserName=?User
+| case {
+    #event_simpleName=ProcessRollup2 CommandLine=/(mimikatz|sekurlsa|logonpasswords|lsadump|procdump.*lsass|comsvcs.*MiniDump|nanodump|lsass\.dmp|pypykatz|lsassy)/i | Signal := "🧪 Credential Dumping";
+    #event_simpleName=ProcessRollup2 CommandLine=/(DisableRealtimeMonitoring|DisableBehaviorMonitoring|Add-MpPreference\s+-ExclusionPath|DisableAntiSpyware|wevtutil\s+cl|Clear-EventLog|auditpol\s+\/clear|fsutil\s+usn\s+deletejournal|AmsiScanBuffer|amsiInitFailed)/i | Signal := "🥷 EDR Evasion";
+    #event_simpleName=ProcessRollup2 CommandLine=/(vssadmin.*delete\s+shadows|wmic\s+shadowcopy\s+delete|bcdedit.*recoveryenabled\s+no|wbadmin\s+delete\s+catalog)/i | Signal := "💥 Ransomware Prep";
+    #event_simpleName=ProcessRollup2 ParentBaseFileName=/^(winword|excel|outlook|powerpnt|onenote|mspub|visio)\.exe$/i FileName=/^(cmd|powershell|pwsh|wscript|cscript|mshta|rundll32|regsvr32)\.exe$/i | Signal := "📧 Office Shell Spawn";
+    #event_simpleName=ProcessRollup2 FileName=/^(powershell|pwsh)\.exe$/i CommandLine=/(DownloadString|DownloadFile|Invoke-Expression|\biex\b|EncodedCommand|\s-enc\s|FromBase64String|Net\.WebClient|Invoke-WebRequest)/i | Signal := "⚡ Suspicious PowerShell";
+    #event_simpleName=ProcessRollup2 CommandLine=/(Invoke-Kerberoast|GetUserSPNs|Rubeus|setspn\s+-[ql])/i | Signal := "🎟️ Kerberoasting";
+    #event_simpleName=ProcessRollup2 FileName=/^(psexec|psexesvc|paexec|winrs)\.exe$/i | Signal := "🛠️ Remote Execution";
+    #event_simpleName=ProcessRollup2 CommandLine=/(Invoke-Command|Enter-PSSession|wmic\s+\/node|Invoke-WmiMethod|\\\\[^\\\s]+\\(admin|c)\$)/i | Signal := "🛠️ Remote Execution";
+    #event_simpleName=ProcessRollup2 FileName=/^(AnyDesk|RustDesk|ScreenConnect\.Client|SplashtopSOS|meshagent|ngrok|frpc|chisel|cloudflared|plink)\.exe$/i | Signal := "🖥️ Remote Tool / Tunnel";
+    #event_simpleName=ProcessRollup2 CommandLine=/(schtasks\s+\/create|sc\s+create|New-Service|Register-ScheduledTask)/i | Signal := "🔧 Task/Service Created";
+    #event_simpleName=ProcessRollup2 CommandLine=/(__EventFilter|CommandLineEventConsumer|ActiveScriptEventConsumer|Register-WmiEvent)/i | Signal := "🧵 WMI Persistence";
+    #event_simpleName=ProcessRollup2 CommandLine=/(net\s+user\s+.*\/add|net\s+localgroup\s+administrators.*\/add|New-LocalUser|Add-LocalGroupMember)/i | Signal := "👤 Account Manipulation";
+    #event_simpleName=AsepValueUpdate RegObjectName=/(\\Run|\\RunOnce|Winlogon|AppInit_DLLs|Image File Execution Options)/i | Signal := "🗝️ Run Key / ASEP";
+    #event_simpleName=ScheduledTaskRegistered | Signal := "⏰ Scheduled Task";
+    #event_simpleName=UserLogon LogonType=/^(3|10)$/ RemoteAddressIP4=* | Signal := "🌉 Remote Logon";
+    #event_simpleName=NetworkConnectIP4 ContextBaseFileName=/^(powershell|pwsh|cmd|rundll32|regsvr32|mshta|wscript|cscript|certutil)\.exe$/i | Signal := "🌐 LOLBin Egress" }
+| case {
+    Signal=/Credential|EDR Evasion|Ransomware/ | Sev := "1 🔴 Critical";
+    Signal=/Office|PowerShell|Kerberoast|Remote Execution|Remote Tool|LOLBin|Account/ | Sev := "2 🟠 High";
+    * | Sev := "3 🟡 Medium" }
+| coalesce([CommandLine, RegStringValue, TaskExecCommand, RemoteAddressIP4], as=Detail)
+| coalesce([FileName, ContextBaseFileName, TaskName, RegValueName], as=Object)
+| sort(@timestamp, order=asc, limit=1000)
+| Time := formatTime("%Y-%m-%d %H:%M:%S", field=@timestamp)
+| table([Time, Sev, Signal, ComputerName, UserName, ParentBaseFileName, Object, Detail, SHA256HashData], limit=1000)
+```
+
+Events that match no signal are dropped by the first `case`, so only suspect activity is left.
+
+### 19. 📋 Host Signal Summary
+*Table or bar chart.* A one-glance scope for the IR report: which signals fired on the host, how often, and the first and last time each was seen. Use the **same query as #18**, and replace the last four lines (from `| coalesce` down) with:
+
+```
+| groupBy([Sev, Signal], function=[count(as=Events), min(@timestamp, as=FirstSeen), max(@timestamp, as=LastSeen)])
+| FirstSeen := formatTime("%Y-%m-%d %H:%M", field=FirstSeen)
+| LastSeen := formatTime("%Y-%m-%d %H:%M", field=LastSeen)
+| sort(Sev, order=asc)
+```
+
+### 20. 👥 Accounts on This Host
+*Table.* Every account that logged on, how, and from where. It scopes which identities to reset and which other hosts to check next.
+
+```
+#event_simpleName=UserLogon
+| ComputerName=?Hostname
+| default(field=UserName, value="-")
+| default(field=RemoteAddressIP4, value="local")
+| not UserName=/\$$/
+| groupBy([UserName, LogonType, RemoteAddressIP4], function=[count(as=Logons), min(@timestamp, as=FirstLogon), max(@timestamp, as=LastLogon)])
+| FirstLogon := formatTime("%Y-%m-%d %H:%M", field=FirstLogon)
+| LastLogon := formatTime("%Y-%m-%d %H:%M", field=LastLogon)
+| sort(Logons, order=desc, limit=100)
+```
+
+### 21. 🌐 Outbound Connections from This Host
+*Table.* Every public destination the host talked to, and which process made the connection. It surfaces C2 and exfil destinations to block and add as IOCs.
+
+```
+#event_simpleName=NetworkConnectIP4
+| ComputerName=?Hostname
+| !cidr(RemoteAddressIP4, subnet=["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","127.0.0.0/8","169.254.0.0/16"])
+| groupBy([ContextBaseFileName, RemoteAddressIP4, RemotePort], function=[count(as=Connections), min(@timestamp, as=FirstSeen), max(@timestamp, as=LastSeen)])
+| FirstSeen := formatTime("%Y-%m-%d %H:%M", field=FirstSeen)
+| LastSeen := formatTime("%Y-%m-%d %H:%M", field=LastSeen)
+| sort(Connections, order=asc, limit=200)
+```
+
+Rare destinations sort to the top. A connection seen once or twice is often more interesting than a busy one.
+
+---
+
+## 📝 Documenting for the IR Report
+
+Response mode is built to feed the report directly. Export each widget as CSV and attach it as evidence.
+
+| IR report section | Widget |
+| --- | --- |
+| Scope and summary | 📋 Host Signal Summary (#19) |
+| Timeline of events | 🧾 Response Timeline (#18) |
+| Initial access | Office Shell Spawn (#1), Suspicious PowerShell (#2), earliest rows in #18 |
+| Affected accounts | 👥 Accounts on This Host (#20), Logon Fan-Out (#8) |
+| Persistence found | Run Keys (#12), Scheduled Tasks (#13), WMI (#14), Startup Drops (#15) |
+| Lateral movement | Remote Execution (#16), RDP / SMB Fan-Out (#17) |
+| IOCs (hashes, IPs, domains) | `SHA256HashData` in #18, destinations in #21 |
+| Containment and remediation | Your actions, checked against everything above |
+
+> 💡 Re-run #18 after remediation. A clean timeline from that point forward is your evidence that containment held.
+
+---
+
 ## 🚀 How to use it
 
-1. Set `?Hostname` and/or `?User`, or leave both at `*` for a fleet-wide sweep.
-2. Run **EDR Evasion** and **Credential Dumping** first. A hit on either raises the priority of everything else.
+### 🔎 Hunt mode
+1. Leave `?Hostname` and `?User` at `*` for a fleet-wide sweep.
+2. Run **EDR Evasion** (#3) and **Credential Dumping** (#10) first. A hit on either raises the priority of everything else.
 3. Work down the rest. Skim for what looks unusual, not for what's definitely bad.
-4. When something looks off, pivot to the process tree and process timeline in Falcon for parent/child context and what ran before and after.
-5. For identity leads, check the account in Falcon Identity Protection or Entra to confirm whether the activity is expected.
-6. Decide: benign (note why), contain (isolate via Real Time Response), or escalate to IR.
+4. When a host looks off, switch to Response mode on it.
 
-> 💡 One hit on one hunt means little. The same host or user showing up across two or three hunts is the signal. For example: a first-seen admin logon (9), then a remote execution tool (16), then a new scheduled task (13) on the next host.
+> 💡 One hit on one hunt means little. The same host or user showing up across two or three hunts is the signal.
+
+### 🚨 Response mode
+1. Set `?Hostname` to the compromised host and the time range to start before the suspected initial access.
+2. Start with the **Host Signal Summary** (#19) to scope what happened.
+3. Read the **Response Timeline** (#18) oldest first to build the story.
+4. Check **Accounts** (#20) and **Outbound Connections** (#21) to find other affected identities, hosts, and IOCs.
+5. Pivot to Falcon's process tree and timeline for any row that needs more context.
+6. Contain (isolate via Real Time Response), remediate, and export the widgets for the IR report.
+7. If an account in #20 shows up elsewhere, set `?User` and re-run the hunts fleet-wide to find the next host.
 
 ---
 
 ## 📌 Notes
 
-- Some hunts (identity, ASEP, persistence) work best over a **7 to 30 day** range. Run the execution hunts at **24 hours** for a daily review.
+- Hunt mode: run the execution hunts at **24 hours** and the identity and persistence hunts at **7 to 30 days**. Response mode: **30 days or more** on a single host.
 - Exclusions and known-good parents are environment-specific. Keep them current, or the hunts will drown in noise.
-- These are hunting aids, not detections. They surface activity for a human to review and don't alert on their own.
+- Hunts are leads, not detections. They surface activity for a human to review and don't alert on their own.
 - Anything that proves high-fidelity should graduate into a scheduled search or custom IOA so it doesn't depend on someone remembering to look. That's how the hunt output stays small instead of becoming alert fatigue.
